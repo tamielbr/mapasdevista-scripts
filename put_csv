@@ -1,62 +1,54 @@
 <?php
-/*
- * PHP code to export MySQL data to CSV
- * Adapted from http://salman-w.blogspot.com/2009/07/export-mysql-data-to-csv-using-php.html 
- *
- * Sends the result of a MySQL query as a CSV file for download
- */
+#This file is part of a process to input serialized latitude and longitude into Wordpress using a "Mapas de Vista" theme.
+# It is used with GET_CSV.php, as a final step to insert data directly into the database and avoid double serializing by Wordpress.
 
-#Establish database connection
+#Connects to your Database 
 $conn = mysql_connect('mysql.xxxx.xxxx', 'database', 'passwd') or die(mysql_error());
 mysql_select_db('database', $conn) or die(mysql_error($conn));
 mysql_set_charset('utf8', $conn);
 
-#Get all distinct IDs from wp_postmeta which currently do not have a latitude/longitude (means they need one)
-$query = sprintf("
-                    SELECT DISTINCT (ID), post_title
-                    FROM wp_posts
-                    INNER JOIN wp_postmeta
-                    ON wp_postmeta.post_id=wp_posts.ID
-                    WHERE meta_key!='_mpv_location'
-                    AND wp_posts.post_status='publish'
-                    AND wp_posts.post_type='post'
-                 ");
-$result = mysql_query($query, $conn) or die(mysql_error($conn));
 
+#http://php.net/manual/en/function.fgetcsv.php
 
-#Send response headers to the browser, following headers instruct the browser to treat the data as a csv file called export.csv
-header('Content-Type: text/csv');
-header('Content-Disposition: attachment;filename=export.csv');
-
-#Output header row (if atleast one row exists)
-$row = mysql_fetch_assoc($result);
-if ($row) {
-    echocsv(array_keys($row));
-}
-
-#Output data rows (if atleast one row exists)
-while ($row) {
-    echocsv($row);
-    $row = mysql_fetch_assoc($result);
-}
-
-/*
- * echo the input array as csv data maintaining consistency with most CSV implementations
- * - uses double-quotes as enclosure when necessary
- * - uses double double-quotes to escape double-quotes 
- * - uses CRLF as a line separator
- */
-
-function echocsv($fields)
-{
-    $separator = '';
-    foreach ($fields as $field) {
-        if (preg_match('/\\r|\\n|,|"/', $field)) {
-            $field = '"' . str_replace('"', '""', $field) . '"';
+#Open the file and creates a multimensional array
+if (($handle = fopen("file.csv", "r")) !== FALSE) {
+    # Set the parent multidimensional array key to 0.
+    $nn = 0;
+    while (($data = fgetcsv($handle, 0, ",")) !== FALSE) {
+        # Count the total keys in the row.
+        $c = count($data);
+        # Populate the multidimensional array.
+        for ($x=0;$x<$c;$x++)
+        {
+           $csvarray[$nn][$x] = $data[$x];
         }
-        echo $separator . $field;
-        $separator = ',';
+        $nn++;
     }
-    echo "\r\n";
+    # Close the File.
+    fclose($handle);
 }
+
+#Array that will receive the serialized version of latitude and longitude
+$array_latlon=array();
+
+#Gets CSV file (file.csv) from the server and parses it into an array.
+#The file should have four columns: post_id, post_name (ignored), lat, lon, map number (from the wp_postmeta setting)
+foreach( $csvarray as $row ) {
+   $id = $row['0'];
+   $post_name = $row['1'];
+   $array_latlon[lat]=floatval($row['2']);
+   $array_latlon[lon]=floatval($row['3']);
+   $mapa = $row['4'];
+   $latlon=serialize($array_latlon);
+   
+
+   #Inputs the serialized version of latitude and longitude into wp_postmeta. Does so directly to avoid a "second" serialization by WP.
+   mysql_query("INSERT INTO wp_postmeta (post_id, meta_key, meta_value) VALUES ('$id','_mpv_location','$latlon')");
+   
+   #Inputs the map number into wp_postmeta
+   mysql_query("INSERT INTO wp_postmeta (post_id, meta_key, meta_value) VALUES ('$id','_mpv_inmap ','$mapa')");       
+          
+    }
+
 ?>
+</pre>
